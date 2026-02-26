@@ -39,7 +39,21 @@ export default async function handler(req, res) {
       message: userText,
       timestamp: new Date(),
     });
+     
 
+    // If no text (like sticker/photo)
+    if (!userText) {
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
+        {
+          chat_id: chatId,
+          text: "Send me a text message 😊",
+        }
+      );
+
+      return res.status(200).send("No text");
+    }
+ 
     // Reply
     await axios.post(
       `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
