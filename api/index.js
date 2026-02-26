@@ -13,18 +13,33 @@ export default async function handler(req, res) {
     }
 
     const chatId = body.message.chat.id;
+    const userText = body.message.text;
 
+    // If no text (like sticker/photo)
+    if (!userText) {
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
+        {
+          chat_id: chatId,
+          text: "Send me a text message 😊",
+        }
+      );
+
+      return res.status(200).send("No text");
+    }
+
+    // 🔥 Echo reply
     await axios.post(
       `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
       {
         chat_id: chatId,
-        text: "Bot working ✅",
+        text: `You said: ${userText}`,
       }
     );
 
-    return res.status(200).send("Done");
+    return res.status(200).send("Message sent");
   } catch (error) {
-    console.error(error);
+    console.error("ERROR:", error);
     return res.status(500).send("Error");
   }
 }
