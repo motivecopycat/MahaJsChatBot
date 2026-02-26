@@ -1,41 +1,32 @@
-import express from "express";
-import dotenv from "dotenv";
-import db from "../services/firebase.js";
-import { sendMessage } from "../services/telegram.js";
+import axios from "axios";
 
-dotenv.config();
-
-const app = express();
-app.use(express.json());
-
-app.post("/webhook", async (req, res) => {
+export default async function handler(req, res) {
   try {
-    const message = req.body.message;
+    console.log("Request received");
 
-    if (!message) return res.sendStatus(200);
-
-    const chatId = message.chat.id;
-    const text = message.text;
-
-    // Save user in Firestore
-    await db.collection("users").doc(chatId.toString()).set({
-      chatId,
-      lastMessage: text,
-      timestamp: new Date()
-    }, { merge: true });
-
-    // Simple response logic
-    if (text === "/start") {
-      await sendMessage(chatId, "Welcome to your SaaS Telegram Bot 🚀");
-    } else {
-      await sendMessage(chatId, `You said: ${text}`);
+    if (req.method !== "POST") {
+      return res.status(200).send("OK");
     }
 
-    res.sendStatus(200);
-  } catch (error) {
-    console.error(error);
-    res.sendStatus(500);
-  }
-});
+    const body = req.body;
 
-export default app;
+    if (!body || !body.message) {
+      return res.status(200).send("No message");
+    }
+
+    const chatId = body.message.chat.id;
+
+    await axios.post(
+      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
+      {
+        chat_id: chatId,
+        text: "Bot working ✅",
+      }
+    );
+
+    return res.status(200).send("Sent");
+  } catch (error) {
+    console.error("ERROR:", error.message);
+    return res.status(500).send("Error");
+  }
+}
