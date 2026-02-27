@@ -39,7 +39,7 @@ export default async function handler(req, res) {
         username,
         name,
         joinDate: new Date(),
-        status: "0",
+        status: "active",
         step: ""
       });
 
