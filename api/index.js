@@ -1,11 +1,8 @@
 import axios from "axios";
 import admin from "firebase-admin";
 
-// 🔥 Firebase Init
 if (!admin.apps.length) {
-  const serviceAccount = JSON.parse(
-    process.env.FIREBASE_SERVICE_ACCOUNT
-  );
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
@@ -27,29 +24,63 @@ export default async function handler(req, res) {
 
     const chatId = body.message.chat.id.toString();
     const username = body.message.from.username || "";
-    const firstName = body.message.from.first_name || "Customer";
+    const name = body.message.from.first_name || "Customer";
     const text = body.message.text || "";
 
     const userRef = db.collection("telegramUser").doc(chatId);
     const userDoc = await userRef.get();
 
-    // 🔥 Ensure telegramUser exists
+    // =========================
+    // 🔥 CREATE telegramUser IF NOT EXISTS
+    // =========================
     if (!userDoc.exists) {
       await userRef.set({
         chatId,
         username,
-        name: firstName,
+        name,
         joinDate: new Date(),
         status: "0",
         step: ""
       });
+
+      await sendMessage(chatId,
+`👋 Welcome ${name}!
+
+I am *Maha JS Mobile Shop* 🤖  
+Your virtual assistant.
+
+I am here to help with your queries,  
+show you latest offers and schemes 📱✨
+
+Please choose an option:
+
+/New registration
+/Scheme
+/Offers`);
+
+      return res.status(200).send("New user welcome");
     }
 
     const userData = (await userRef.get()).data();
 
-    // ======================================
-    // 🔥 HANDLE /New COMMAND
-    // ======================================
+    // =========================
+    // 🔥 RETURNING USER
+    // =========================
+    if (text === "/start") {
+      await sendMessage(chatId,
+`👋 Welcome back ${name}!
+
+Please choose:
+
+/New registration
+/Scheme
+/Offers`);
+      return res.status(200).send("Welcome back");
+    }
+
+    // =========================
+    // 🔥 /New REGISTRATION START
+    // =========================
     if (text === "/New") {
 
       const customerQuery = await db
@@ -58,82 +89,122 @@ export default async function handler(req, res) {
         .get();
 
       if (!customerQuery.empty) {
-        // Already Registered
         await sendMessage(chatId,
-`👋 Welcome back ${firstName}!
+`👋 Welcome back ${name}!
 
-You are already registered with Maha JS Mobile Shop 📱
+You are already registered 🎉
 
-Choose:
+Please choose:
+
 /Scheme
 /Offers`);
-        return res.status(200).send("Already Registered");
+
+        return res.status(200).send("Already registered");
       }
 
-      // Not Registered → Ask Full Name
       await userRef.update({ step: "fullName" });
 
       await sendMessage(chatId, "📝 Please enter your Full Name:");
-      return res.status(200).send("Asked Full Name");
+      return res.status(200).send("Ask Full Name");
     }
 
-    // ======================================
-    // 🔥 STEP: FULL NAME
-    // ======================================
+    // =========================
+    // STEP 1 - FULL NAME
+    // =========================
     if (userData.step === "fullName") {
-
       await userRef.update({
         tempFullName: text,
         step: "address"
       });
 
-      await sendMessage(chatId, "🏠 Please enter your Address:");
-      return res.status(200).send("Saved Full Name");
+      await sendMessage(chatId,
+`🏠 Please enter your Full Address in this format:
+
+House No:
+Street:
+Area:
+City:
+Pincode:`);
+
+      return res.status(200).send("Ask Address");
     }
 
-    // ======================================
-    // 🔥 STEP: ADDRESS
-    // ======================================
+    // =========================
+    // STEP 2 - ADDRESS
+    // =========================
     if (userData.step === "address") {
-
       await userRef.update({
         tempAddress: text,
         step: "scheme"
       });
 
       await sendMessage(chatId,
-`📦 Choose your Scheme:
+`📦 Choose Your Scheme:
 
-1️⃣ 6 Months
-2️⃣ 12 Months
-3️⃣ 18 Months
+1️⃣ Monthly Scheme  
+Monthly pay ₹200 fixed.  
+You can also pay extra amount anytime.
 
-Type scheme name.`);
-      return res.status(200).send("Saved Address");
+2️⃣ Smart Scheme  
+Pay any amount anytime.  
+Minimum ₹200 required.
+
+Select:
+
+/Monthly scheme  
+/Smart scheme`);
+
+      return res.status(200).send("Ask Scheme");
     }
 
-    // ======================================
-    // 🔥 STEP: SCHEME
-    // ======================================
+    // =========================
+    // STEP 3 - SCHEME
+    // =========================
     if (userData.step === "scheme") {
 
-      // 🔥 Save in customer collection
+      if (text !== "/Monthly scheme" && text !== "/Smart scheme") {
+        await sendMessage(chatId, "❌ Please select valid option:\n/Monthly scheme\n/Smart scheme");
+        return res.status(200).send("Invalid scheme");
+      }
+
+      await userRef.update({
+        tempScheme: text,
+        step: "payment"
+      });
+
+      await sendMessage(chatId,
+`💳 Registration Advance Amount: ₹200
+
+Please complete payment using UPI:
+
+upi://pay?pa=thamizharasanmassboy-1@okaxis&pn=Thamizh&am=200&cu=INR&tn=Register for Maha JS Mobile Shop
+
+After payment, type: PAID`);
+
+      return res.status(200).send("Ask Payment");
+    }
+
+    // =========================
+    // STEP 4 - PAYMENT CONFIRM
+    // =========================
+    if (userData.step === "payment" && text.toUpperCase() === "PAID") {
+
       await db.collection("customer").add({
-        chatId: chatId,
-        username: username,
+        chatId,
+        username,
         fullName: userData.tempFullName,
         address: userData.tempAddress,
-        scheme: text,
+        scheme: userData.tempScheme,
         joinDate: new Date(),
         status: "active"
       });
 
-      // 🔥 Update telegramUser
       await userRef.update({
-        status: "1",
+        status: "New",
         step: "",
         tempFullName: admin.firestore.FieldValue.delete(),
-        tempAddress: admin.firestore.FieldValue.delete()
+        tempAddress: admin.firestore.FieldValue.delete(),
+        tempScheme: admin.firestore.FieldValue.delete()
       });
 
       await sendMessage(chatId,
@@ -146,7 +217,7 @@ Now you can explore:
 /Scheme
 /Offers`);
 
-      return res.status(200).send("Registration Completed");
+      return res.status(200).send("Registration Complete");
     }
 
     return res.status(200).send("Done");
@@ -157,7 +228,7 @@ Now you can explore:
   }
 }
 
-// 🔥 Telegram Send Function
+// Telegram Send Function
 async function sendMessage(chatId, text) {
   await axios.post(
     `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
