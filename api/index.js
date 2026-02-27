@@ -1,6 +1,7 @@
 import axios from "axios";
 import admin from "firebase-admin";
 
+// 🔥 Firebase Init
 if (!admin.apps.length) {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
@@ -31,7 +32,7 @@ export default async function handler(req, res) {
     const userDoc = await userRef.get();
 
     // =========================
-    // 🔥 CREATE telegramUser IF NOT EXISTS
+    // 🔥 NEW TELEGRAM USER
     // =========================
     if (!userDoc.exists) {
       await userRef.set({
@@ -39,14 +40,14 @@ export default async function handler(req, res) {
         username,
         name,
         joinDate: new Date(),
-        status: "active",
+        status: "guest",
         step: ""
       });
 
       await sendMessage(chatId,
 `👋 Welcome ${name}!
 
-I am *Maha JS Mobile Shop* 🤖  
+I am Maha JS Mobile Shop 🤖  
 Your virtual assistant.
 
 I am here to help with your queries,  
@@ -64,9 +65,9 @@ Please choose an option:
     const userData = (await userRef.get()).data();
 
     // =========================
-    // 🔥 RETURNING USER
+    // 🔥 IF USER ACTIVE (REGISTERED)
     // =========================
-    if (userData.status === "active") {
+    if (userData.status === "active" && userData.step === "") {
       await sendMessage(chatId,
 `👋 Welcome back ${name}!
 
@@ -75,11 +76,12 @@ Please choose:
 /New registration
 /Scheme
 /Offers`);
-      return res.status(200).send("Welcome back");
+
+      return res.status(200).send("Active user menu");
     }
 
     // =========================
-    // 🔥 /New REGISTRATION START
+    // 🔥 START REGISTRATION
     // =========================
     if (text === "/New") {
 
@@ -163,7 +165,8 @@ Select:
     if (userData.step === "scheme") {
 
       if (text !== "/Monthly scheme" && text !== "/Smart scheme") {
-        await sendMessage(chatId, "❌ Please select valid option:\n/Monthly scheme\n/Smart scheme");
+        await sendMessage(chatId,
+"❌ Please select valid option:\n/Monthly scheme\n/Smart scheme");
         return res.status(200).send("Invalid scheme");
       }
 
@@ -200,7 +203,7 @@ After payment, type: PAID`);
       });
 
       await userRef.update({
-        status: "New",
+        status: "active",
         step: "",
         tempFullName: admin.firestore.FieldValue.delete(),
         tempAddress: admin.firestore.FieldValue.delete(),
@@ -228,7 +231,9 @@ Now you can explore:
   }
 }
 
-// Telegram Send Function
+// =========================
+// 🔥 TELEGRAM SEND FUNCTION
+// =========================
 async function sendMessage(chatId, text) {
   await axios.post(
     `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
