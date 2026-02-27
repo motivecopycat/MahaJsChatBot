@@ -21,49 +21,65 @@ export default async function handler(req, res) {
     }
 
     const body = req.body;
+
     if (!body || !body.message) {
       return res.status(200).send("No message");
     }
 
     const chatId = body.message.chat.id.toString();
     const username = body.message.from.username || "";
-    const firstName = body.message.from.first_name || "";
-    const message = body.message.text || "";
+    const name = body.message.from.first_name || "Customer";
 
-    const userRef = db.collection("users").doc(chatId);
+    const userRef = db.collection("telegramUser").doc(chatId);
     const userDoc = await userRef.get();
 
-    // 🔥 NEW USER
+    // 🔥 IF USER NOT REGISTERED
     if (!userDoc.exists) {
       await userRef.set({
-        chatId,
-        username,
-        firstName,
-        joinedAt: new Date(),
-        lastMessage: message,
+        chatId: chatId,
+        username: username,
+        name: name,
+        joinDate: new Date(),
+        status: "active"
       });
 
       await axios.post(
         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
         {
           chat_id: chatId,
-          text: `👋 Welcome ${firstName}!\n\nThanks for starting the bot 🚀`,
+          text:
+`👋 Welcome ${name}!
+
+I am *Maha JS Mobile Shop* 🤖  
+Your virtual assistant.
+
+I am here to help with your queries,  
+show you latest offers and schemes 📱✨
+
+Please choose an option:
+
+/New registration
+/Scheme
+/Offers`,
+          parse_mode: "Markdown"
         }
       );
     }
 
-    // 🔥 EXISTING USER
+    // 🔥 IF USER ALREADY REGISTERED
     else {
-      await userRef.update({
-        lastMessage: message,
-        updatedAt: new Date(),
-      });
-
       await axios.post(
         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
         {
           chat_id: chatId,
-          text: `🛠 Help Menu:\n\n1️⃣ Type /info\n2️⃣ Type /support\n3️⃣ Type /plan`,
+          text:
+`👋 Welcome back ${name}!
+
+Please choose:
+
+/New registration
+/Scheme
+/Offers`
         }
       );
     }
