@@ -4,7 +4,6 @@ import admin from "firebase-admin";
 // 🔥 Firebase Init
 if (!admin.apps.length) {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
   });
@@ -32,7 +31,7 @@ export default async function handler(req, res) {
     const userDoc = await userRef.get();
 
     // =========================
-    // 🔥 NEW TELEGRAM USER
+    // 🆕 CREATE NEW TELEGRAM USER
     // =========================
     if (!userDoc.exists) {
       await userRef.set({
@@ -50,38 +49,22 @@ export default async function handler(req, res) {
 I am Maha JS Mobile Shop 🤖  
 Your virtual assistant.
 
-I am here to help with your queries,  
+I am here to help with your queries,
 show you latest offers and schemes 📱✨
 
-Please choose an option:
+Please choose:
 
-/New registration
+/New
 /Scheme
 /Offers`);
 
-      return res.status(200).send("New user welcome");
+      return res.status(200).send("New user created");
     }
 
     const userData = (await userRef.get()).data();
 
     // =========================
-    // 🔥 IF USER ACTIVE (REGISTERED)
-    // =========================
-    if (userData.status === "active" && userData.step === "") {
-      await sendMessage(chatId,
-`👋 Welcome back ${name}!
-
-Please choose:
-
-/New registration
-/Scheme
-/Offers`);
-
-      return res.status(200).send("Active user menu");
-    }
-
-    // =========================
-    // 🔥 START REGISTRATION
+    // 🔥 PRIORITY 1 — /New COMMAND
     // =========================
     if (text === "/New") {
 
@@ -111,9 +94,10 @@ Please choose:
     }
 
     // =========================
-    // STEP 1 - FULL NAME
+    // 🔥 STEP 1 — FULL NAME
     // =========================
     if (userData.step === "fullName") {
+
       await userRef.update({
         tempFullName: text,
         step: "address"
@@ -132,9 +116,10 @@ Pincode:`);
     }
 
     // =========================
-    // STEP 2 - ADDRESS
+    // 🔥 STEP 2 — ADDRESS
     // =========================
     if (userData.step === "address") {
+
       await userRef.update({
         tempAddress: text,
         step: "scheme"
@@ -153,14 +138,14 @@ Minimum ₹200 required.
 
 Select:
 
-/Monthly scheme  
+/Monthly scheme
 /Smart scheme`);
 
       return res.status(200).send("Ask Scheme");
     }
 
     // =========================
-    // STEP 3 - SCHEME
+    // 🔥 STEP 3 — SCHEME
     // =========================
     if (userData.step === "scheme") {
 
@@ -188,7 +173,7 @@ After payment, type: PAID`);
     }
 
     // =========================
-    // STEP 4 - PAYMENT CONFIRM
+    // 🔥 STEP 4 — PAYMENT CONFIRM
     // =========================
     if (userData.step === "payment" && text.toUpperCase() === "PAID") {
 
@@ -220,7 +205,24 @@ Now you can explore:
 /Scheme
 /Offers`);
 
-      return res.status(200).send("Registration Complete");
+      return res.status(200).send("Registration complete");
+    }
+
+    // =========================
+    // 🔥 DEFAULT MENU (ACTIVE USERS)
+    // =========================
+    if (userData.status === "active") {
+
+      await sendMessage(chatId,
+`👋 Welcome back ${name}!
+
+Please choose:
+
+/New
+/Scheme
+/Offers`);
+
+      return res.status(200).send("Active menu");
     }
 
     return res.status(200).send("Done");
