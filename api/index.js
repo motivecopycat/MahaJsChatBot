@@ -1,7 +1,7 @@
 import axios from "axios";
 import admin from "firebase-admin";
 
-// Initialize Firebase
+// 🔥 Firebase Init
 if (!admin.apps.length) {
   const serviceAccount = JSON.parse(
     process.env.FIREBASE_SERVICE_ACCOUNT
@@ -21,49 +21,54 @@ export default async function handler(req, res) {
     }
 
     const body = req.body;
-
     if (!body || !body.message) {
       return res.status(200).send("No message");
     }
 
     const chatId = body.message.chat.id.toString();
-    const userText = body.message.text || "";
     const username = body.message.from.username || "";
     const firstName = body.message.from.first_name || "";
+    const message = body.message.text || "";
 
-    // 🔥 Save chat in Firestore
-    await db.collection("chats").add({
-      chatId: chatId,
-      username: username,
-      firstName: firstName,
-      message: userText,
-      timestamp: new Date(),
-    });
-     
+    const userRef = db.collection("users").doc(chatId);
+    const userDoc = await userRef.get();
 
-    // If no text (like sticker/photo)
-    if (!userText) {
+    // 🔥 NEW USER
+    if (!userDoc.exists) {
+      await userRef.set({
+        chatId,
+        username,
+        firstName,
+        joinedAt: new Date(),
+        lastMessage: message,
+      });
+
       await axios.post(
         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
         {
           chat_id: chatId,
-          text: "Send me a text message 😊",
+          text: `👋 Welcome ${firstName}!\n\nThanks for starting the bot 🚀`,
         }
       );
-
-      return res.status(200).send("No text");
     }
- 
-    // Reply
-    await axios.post(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
-      {
-        chat_id: chatId,
-        text: `Saved ✅ You said: ${userText}`,
-      }
-    );
 
-    return res.status(200).send("Saved");
+    // 🔥 EXISTING USER
+    else {
+      await userRef.update({
+        lastMessage: message,
+        updatedAt: new Date(),
+      });
+
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
+        {
+          chat_id: chatId,
+          text: `🛠 Help Menu:\n\n1️⃣ Type /info\n2️⃣ Type /support\n3️⃣ Type /plan`,
+        }
+      );
+    }
+
+    return res.status(200).send("Done");
   } catch (error) {
     console.error("ERROR:", error);
     return res.status(500).send("Error");
