@@ -66,7 +66,7 @@ Please choose an option:
     // =========================
     // 🔥 RETURNING USER
     // =========================
-    if (text === "/start") {
+    if (userData.status === "active") {
       await sendMessage(chatId,
 `👋 Welcome back ${name}!
 
