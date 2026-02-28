@@ -23,7 +23,6 @@ const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
   scopes: ["https://www.googleapis.com/auth/drive"],
 });
-
 const drive = google.drive({ version: "v3", auth });
 
 // =============================
@@ -38,10 +37,9 @@ export default async function handler(req, res) {
 
     const chatId = message.chat.id.toString();
     const username = message.from.username || "";
-    const name = message.from.first_name || "Customer";
+    const firstName = message.from.first_name || "Customer";
     const text = message.text;
 
-    // Ignore empty updates
     if (!text && !message.photo && !message.document) {
       return res.status(200).send("Ignored");
     }
@@ -50,11 +48,11 @@ export default async function handler(req, res) {
     const userDoc = await userRef.get();
 
     // =============================
-    // 🆕 NEW TELEGRAM USER
+    // NEW USER
     // =============================
     if (!userDoc.exists) {
       await userRef.set({
-        name,
+        name: firstName,
         username,
         chatId,
         status: "guest",
@@ -63,27 +61,29 @@ export default async function handler(req, res) {
       });
 
       if (text === "/start") {
-        await sendWelcome(chatId, name);
+        await sendWelcome(chatId, firstName);
       }
 
       return res.status(200).send("User created");
     }
 
-    const userData = userDoc.data();
+    // Always refresh latest user data
+    const latestDoc = await userRef.get();
+    const userData = latestDoc.data();
+
     await userRef.update({ lastChat: new Date() });
 
     // =============================
-    // 📋 BASIC COMMANDS
+    // BASIC COMMANDS
     // =============================
 
     if (text === "/start") {
-      await sendWelcome(chatId, name);
+      await sendWelcome(chatId, firstName);
       return res.status(200).send("Start");
     }
 
     if (text === "/Scheme") {
-      await sendMessage(
-        chatId,
+      await sendMessage(chatId,
 `📦 Our Schemes:
 
 1️⃣ Monthly Scheme  
@@ -101,8 +101,7 @@ https://your-scheme-link.com`
     }
 
     if (text === "/Offers") {
-      await sendMessage(
-        chatId,
+      await sendMessage(chatId,
 `🔥 Current Offers:
 
 • Cashback bonus
@@ -116,9 +115,8 @@ https://your-offer-link.com`
     }
 
     // =============================
-    // 📝 START REGISTRATION
+    // START REGISTRATION
     // =============================
-
     if (text === "/New") {
       const existingCustomer = await db
         .collection("Customer")
@@ -126,8 +124,7 @@ https://your-offer-link.com`
         .get();
 
       if (!existingCustomer.empty) {
-        await sendMessage(
-          chatId,
+        await sendMessage(chatId,
 `👋 You are already registered!
 
 Choose:
@@ -143,7 +140,7 @@ Choose:
     }
 
     // =============================
-    // 🔄 STEP FLOW
+    // STEP FLOW
     // =============================
 
     if (userData.step === "name") {
@@ -160,16 +157,13 @@ Choose:
 
     if (userData.step === "mobile") {
       await userRef.update({ tempMobile: text, step: "scheme" });
-
-      await sendMessage(
-        chatId,
+      await sendMessage(chatId,
 `📦 Choose Scheme:
 
 /Monthly scheme
 /Smart scheme`
       );
-
-      return res.status(200).send("Scheme choose");
+      return res.status(200).send("Choose scheme");
     }
 
     if (userData.step === "scheme") {
@@ -180,8 +174,7 @@ Choose:
 
       await userRef.update({ tempScheme: text, step: "payment" });
 
-      await sendMessage(
-        chatId,
+      await sendMessage(chatId,
 `💳 Registration Advance Amount: ₹200
 
 Pay using UPI:
@@ -195,21 +188,19 @@ Send payment screenshot after payment.`
     }
 
     // =============================
-    // 📸 PAYMENT SCREENSHOT
+    // PAYMENT SCREENSHOT
     // =============================
-
     if (userData.step === "payment" && (message.photo || message.document)) {
+
       let fileId;
 
       if (message.photo) {
-        fileId = message.photo.pop().file_id;
+        fileId = message.photo[message.photo.length - 1].file_id;
       }
 
       if (message.document) {
         fileId = message.document.file_id;
       }
-
-      if (!fileId) return res.status(200).send("No file");
 
       const fileInfo = await axios.get(
         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${fileId}`
@@ -245,8 +236,9 @@ Send payment screenshot after payment.`
         address: userData.tempAddress,
         mobile: userData.tempMobile,
         scheme: userData.tempScheme,
-        joiningDate: new Date(),
+        profileImage: "",
         status: "active",
+        joiningDate: new Date(),
       });
 
       await db.collection("Payment").add({
@@ -272,18 +264,17 @@ Send payment screenshot after payment.`
     return res.status(200).send("No action");
 
   } catch (error) {
-    console.error(error);
+    console.error("ERROR:", error);
     return res.status(500).send("Error");
   }
 }
 
 // =============================
-// 📩 MESSAGE FUNCTIONS
+// MESSAGE FUNCTIONS
 // =============================
 
 async function sendWelcome(chatId, name) {
-  await sendMessage(
-    chatId,
+  await sendMessage(chatId,
 `👋 Welcome ${name}!
 
 I am Maha JS Mobile Shop 🤖  
