@@ -3,7 +3,9 @@ import admin from "firebase-admin";
 import { google } from "googleapis";
 import stream from "stream";
 
+// ==============================
 // 🔥 Firebase Init
+// ==============================
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(
@@ -14,13 +16,19 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
+// ==============================
 // 🔥 Google Drive Init
+// ==============================
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
   scopes: ["https://www.googleapis.com/auth/drive"],
 });
+
 const drive = google.drive({ version: "v3", auth });
 
+// ==============================
+// 🚀 MAIN HANDLER
+// ==============================
 export default async function handler(req, res) {
   try {
     if (req.method !== "POST") return res.status(200).send("OK");
@@ -31,14 +39,19 @@ export default async function handler(req, res) {
     const chatId = message.chat.id.toString();
     const username = message.from.username || "";
     const name = message.from.first_name || "Customer";
-    const text = message.text || "";
+    const text = message.text;
+
+    // Ignore completely empty updates
+    if (!text && !message.photo) {
+      return res.status(200).send("Ignored");
+    }
 
     const userRef = db.collection("telegramUser").doc(chatId);
     const userDoc = await userRef.get();
 
-    // ======================
-    // NEW TELEGRAM USER
-    // ======================
+    // ==============================
+    // 🆕 FIRST TIME USER
+    // ==============================
     if (!userDoc.exists) {
       await userRef.set({
         name,
@@ -49,17 +62,26 @@ export default async function handler(req, res) {
         lastChat: new Date(),
       });
 
-      await sendWelcome(chatId, name);
-      return res.status(200).send("New User");
+      if (text === "/start") {
+        await sendWelcome(chatId, name);
+      }
+
+      return res.status(200).send("User created");
     }
 
-    const userData = (await userRef.get()).data();
+    const userData = userDoc.data();
 
     await userRef.update({ lastChat: new Date() });
 
-    // ======================
-    // MENU COMMANDS
-    // ======================
+    // ==============================
+    // 📋 BASIC COMMANDS
+    // ==============================
+
+    if (text === "/start") {
+      await sendWelcome(chatId, name);
+      return res.status(200).send("Start");
+    }
+
     if (text === "/Scheme") {
       await sendMessage(
         chatId,
@@ -84,26 +106,27 @@ https://your-scheme-link.com`
         chatId,
 `🔥 Current Offers:
 
-• Cashback offers
-• Bonus savings
-• Festival discounts
+• Cashback bonus
+• Festival discount
+• Loyalty rewards
 
-View full details:
+More details:
 https://your-offer-link.com`
       );
       return res.status(200).send("Offers");
     }
 
-    // ======================
-    // START REGISTRATION
-    // ======================
+    // ==============================
+    // 📝 START REGISTRATION
+    // ==============================
+
     if (text === "/New") {
-      const customerQuery = await db
+      const existingCustomer = await db
         .collection("Customer")
         .where("chatId", "==", chatId)
         .get();
 
-      if (!customerQuery.empty) {
+      if (!existingCustomer.empty) {
         await sendMessage(
           chatId,
 `👋 You are already registered!
@@ -115,32 +138,29 @@ Choose:
         return res.status(200).send("Already registered");
       }
 
-      await userRef.update({ step: "fullName" });
+      await userRef.update({ step: "name" });
       await sendMessage(chatId, "📝 Enter your Full Name:");
       return res.status(200).send("Ask name");
     }
 
-    // ======================
-    // STEP FLOW
-    // ======================
+    // ==============================
+    // 🔄 STEP FLOW
+    // ==============================
 
-    if (userData.step === "fullName") {
+    if (userData.step === "name") {
       await userRef.update({ tempName: text, step: "address" });
-      await sendMessage(
-        chatId,
-"🏠 Enter Full Address with PIN Code:"
-      );
+      await sendMessage(chatId, "🏠 Enter your Full Address with PIN Code:");
       return res.status(200).send("Address");
     }
 
     if (userData.step === "address") {
       await userRef.update({ tempAddress: text, step: "mobile" });
-      await sendMessage(chatId, "📱 Enter Mobile Number:");
+      await sendMessage(chatId, "📱 Enter your Mobile Number:");
       return res.status(200).send("Mobile");
     }
 
     if (userData.step === "mobile") {
-      await userRef.update({ tempMobile: text, step: "chooseScheme" });
+      await userRef.update({ tempMobile: text, step: "scheme" });
 
       await sendMessage(
         chatId,
@@ -149,12 +169,13 @@ Choose:
 /Monthly scheme
 /Smart scheme`
       );
-      return res.status(200).send("Choose scheme");
+
+      return res.status(200).send("Scheme choose");
     }
 
-    if (userData.step === "chooseScheme") {
+    if (userData.step === "scheme") {
       if (text !== "/Monthly scheme" && text !== "/Smart scheme") {
-        await sendMessage(chatId, "Select valid scheme.");
+        await sendMessage(chatId, "Please choose valid scheme.");
         return res.status(200).send("Invalid scheme");
       }
 
@@ -174,9 +195,10 @@ Send payment screenshot after payment.`
       return res.status(200).send("Payment step");
     }
 
-    // ======================
-    // PAYMENT SCREENSHOT
-    // ======================
+    // ==============================
+    // 💳 PAYMENT SCREENSHOT
+    // ==============================
+
     if (userData.step === "payment" && message.photo) {
       const photo = message.photo.pop();
       const fileId = photo.file_id;
@@ -208,24 +230,6 @@ Send payment screenshot after payment.`
 
       const screenshotURL = `https://drive.google.com/file/d/${driveFile.data.id}/view`;
 
-      // Get Telegram profile photo
-      let profileImage = "";
-      const profilePhotos = await axios.get(
-        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getUserProfilePhotos?user_id=${chatId}`
-      );
-
-      if (profilePhotos.data.result.total_count > 0) {
-        const profileFileId =
-          profilePhotos.data.result.photos[0][0].file_id;
-
-        const profileFile = await axios.get(
-          `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${profileFileId}`
-        );
-
-        profileImage = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${profileFile.data.result.file_path}`;
-      }
-
-      // Save Customer
       const customerRef = await db.collection("Customer").add({
         chatId,
         username,
@@ -233,12 +237,10 @@ Send payment screenshot after payment.`
         address: userData.tempAddress,
         mobile: userData.tempMobile,
         scheme: userData.tempScheme,
-        profileImage,
-        status: "active",
         joiningDate: new Date(),
+        status: "active",
       });
 
-      // Save Payment
       await db.collection("Payment").add({
         chatId,
         username,
@@ -258,15 +260,17 @@ Send payment screenshot after payment.`
       return res.status(200).send("Registered");
     }
 
-    // DEFAULT MENU
-    await sendWelcome(chatId, name);
-    return res.status(200).send("Menu");
+    return res.status(200).send("No action");
 
   } catch (error) {
     console.error(error);
     return res.status(500).send("Error");
   }
 }
+
+// ==============================
+// 📩 SEND FUNCTIONS
+// ==============================
 
 async function sendWelcome(chatId, name) {
   await sendMessage(
@@ -277,7 +281,7 @@ I am Maha JS Mobile Shop 🤖
 Your virtual assistant.
 
 Choose:
-/New registration
+/New
 /Scheme
 /Offers`
   );
