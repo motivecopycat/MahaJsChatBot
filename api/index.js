@@ -3,9 +3,9 @@ import admin from "firebase-admin";
 import { google } from "googleapis";
 import stream from "stream";
 
-// ==============================
-// 🔥 Firebase Init
-// ==============================
+// =============================
+// 🔥 FIREBASE INIT
+// =============================
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(
@@ -16,9 +16,9 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// ==============================
-// 🔥 Google Drive Init
-// ==============================
+// =============================
+// 🔥 GOOGLE DRIVE INIT
+// =============================
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
   scopes: ["https://www.googleapis.com/auth/drive"],
@@ -26,9 +26,9 @@ const auth = new google.auth.GoogleAuth({
 
 const drive = google.drive({ version: "v3", auth });
 
-// ==============================
+// =============================
 // 🚀 MAIN HANDLER
-// ==============================
+// =============================
 export default async function handler(req, res) {
   try {
     if (req.method !== "POST") return res.status(200).send("OK");
@@ -41,17 +41,17 @@ export default async function handler(req, res) {
     const name = message.from.first_name || "Customer";
     const text = message.text;
 
-    // Ignore completely empty updates
-    if (!text && !message.photo) {
+    // Ignore empty updates
+    if (!text && !message.photo && !message.document) {
       return res.status(200).send("Ignored");
     }
 
     const userRef = db.collection("telegramUser").doc(chatId);
     const userDoc = await userRef.get();
 
-    // ==============================
-    // 🆕 FIRST TIME USER
-    // ==============================
+    // =============================
+    // 🆕 NEW TELEGRAM USER
+    // =============================
     if (!userDoc.exists) {
       await userRef.set({
         name,
@@ -70,12 +70,11 @@ export default async function handler(req, res) {
     }
 
     const userData = userDoc.data();
-
     await userRef.update({ lastChat: new Date() });
 
-    // ==============================
+    // =============================
     // 📋 BASIC COMMANDS
-    // ==============================
+    // =============================
 
     if (text === "/start") {
       await sendWelcome(chatId, name);
@@ -116,9 +115,9 @@ https://your-offer-link.com`
       return res.status(200).send("Offers");
     }
 
-    // ==============================
+    // =============================
     // 📝 START REGISTRATION
-    // ==============================
+    // =============================
 
     if (text === "/New") {
       const existingCustomer = await db
@@ -143,19 +142,19 @@ Choose:
       return res.status(200).send("Ask name");
     }
 
-    // ==============================
+    // =============================
     // 🔄 STEP FLOW
-    // ==============================
+    // =============================
 
     if (userData.step === "name") {
       await userRef.update({ tempName: text, step: "address" });
-      await sendMessage(chatId, "🏠 Enter your Full Address with PIN Code:");
+      await sendMessage(chatId, "🏠 Enter Full Address with PIN Code:");
       return res.status(200).send("Address");
     }
 
     if (userData.step === "address") {
       await userRef.update({ tempAddress: text, step: "mobile" });
-      await sendMessage(chatId, "📱 Enter your Mobile Number:");
+      await sendMessage(chatId, "📱 Enter Mobile Number:");
       return res.status(200).send("Mobile");
     }
 
@@ -195,13 +194,22 @@ Send payment screenshot after payment.`
       return res.status(200).send("Payment step");
     }
 
-    // ==============================
-    // 💳 PAYMENT SCREENSHOT
-    // ==============================
+    // =============================
+    // 📸 PAYMENT SCREENSHOT
+    // =============================
 
-    if (userData.step === "payment" && message.photo) {
-      const photo = message.photo.pop();
-      const fileId = photo.file_id;
+    if (userData.step === "payment" && (message.photo || message.document)) {
+      let fileId;
+
+      if (message.photo) {
+        fileId = message.photo.pop().file_id;
+      }
+
+      if (message.document) {
+        fileId = message.document.file_id;
+      }
+
+      if (!fileId) return res.status(200).send("No file");
 
       const fileInfo = await axios.get(
         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${fileId}`
@@ -256,7 +264,8 @@ Send payment screenshot after payment.`
         step: "",
       });
 
-      await sendMessage(chatId, "🎉 Registration Successful!");
+      await sendMessage(chatId, "🎉 Registration Successful! Screenshot received.");
+
       return res.status(200).send("Registered");
     }
 
@@ -268,9 +277,9 @@ Send payment screenshot after payment.`
   }
 }
 
-// ==============================
-// 📩 SEND FUNCTIONS
-// ==============================
+// =============================
+// 📩 MESSAGE FUNCTIONS
+// =============================
 
 async function sendWelcome(chatId, name) {
   await sendMessage(
