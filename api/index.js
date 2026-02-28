@@ -5,146 +5,195 @@ import stream from "stream";
 
 // 🔥 Firebase Init
 if (!admin.apps.length) {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
+    credential: admin.credential.cert(
+      JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+    ),
   });
 }
 
 const db = admin.firestore();
 
-// 🔥 Google Drive Auth
+// 🔥 Google Drive Init
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
   scopes: ["https://www.googleapis.com/auth/drive"],
 });
-
 const drive = google.drive({ version: "v3", auth });
 
 export default async function handler(req, res) {
   try {
     if (req.method !== "POST") return res.status(200).send("OK");
 
-    const body = req.body;
-    if (!body.message) return res.status(200).send("No message");
+    const message = req.body.message;
+    if (!message) return res.status(200).send("No message");
 
-    const chatId = body.message.chat.id.toString();
-    const username = body.message.from.username || "";
-    const name = body.message.from.first_name || "Customer";
-    const text = body.message.text || "";
+    const chatId = message.chat.id.toString();
+    const username = message.from.username || "";
+    const name = message.from.first_name || "Customer";
+    const text = message.text || "";
 
     const userRef = db.collection("telegramUser").doc(chatId);
     const userDoc = await userRef.get();
 
+    // ======================
+    // NEW TELEGRAM USER
+    // ======================
     if (!userDoc.exists) {
       await userRef.set({
-        chatId,
-        username,
         name,
-        joinDate: new Date(),
+        username,
+        chatId,
         status: "guest",
-        step: ""
+        step: "",
+        lastChat: new Date(),
       });
 
-      await sendMessage(chatId,
-`👋 Welcome ${name}!
-
-I am Maha JS Mobile Shop 🤖  
-Your virtual assistant.
-
-Please choose:
-
-/New
-/Scheme
-/Offers`);
-
-      return res.status(200).send("New user");
+      await sendWelcome(chatId, name);
+      return res.status(200).send("New User");
     }
 
     const userData = (await userRef.get()).data();
 
-    // =========================
+    await userRef.update({ lastChat: new Date() });
+
+    // ======================
+    // MENU COMMANDS
+    // ======================
+    if (text === "/Scheme") {
+      await sendMessage(
+        chatId,
+`📦 Our Schemes:
+
+1️⃣ Monthly Scheme  
+Monthly pay ₹200 fixed.  
+You can also pay extra amount anytime.
+
+2️⃣ Smart Scheme  
+Pay any amount anytime.  
+Minimum ₹200 required.
+
+More details:
+https://your-scheme-link.com`
+      );
+      return res.status(200).send("Scheme");
+    }
+
+    if (text === "/Offers") {
+      await sendMessage(
+        chatId,
+`🔥 Current Offers:
+
+• Cashback offers
+• Bonus savings
+• Festival discounts
+
+View full details:
+https://your-offer-link.com`
+      );
+      return res.status(200).send("Offers");
+    }
+
+    // ======================
     // START REGISTRATION
-    // =========================
+    // ======================
     if (text === "/New") {
+      const customerQuery = await db
+        .collection("Customer")
+        .where("chatId", "==", chatId)
+        .get();
+
+      if (!customerQuery.empty) {
+        await sendMessage(
+          chatId,
+`👋 You are already registered!
+
+Choose:
+/pay
+/savings`
+        );
+        return res.status(200).send("Already registered");
+      }
+
       await userRef.update({ step: "fullName" });
       await sendMessage(chatId, "📝 Enter your Full Name:");
       return res.status(200).send("Ask name");
     }
 
-    // FULL NAME
+    // ======================
+    // STEP FLOW
+    // ======================
+
     if (userData.step === "fullName") {
-      await userRef.update({
-        tempFullName: text,
-        step: "address"
-      });
-
-      await sendMessage(chatId,
-`🏠 Enter Full Address:
-
-House No:
-Street:
-Area:
-City:
-Pincode:`);
-
-      return res.status(200).send("Ask address");
+      await userRef.update({ tempName: text, step: "address" });
+      await sendMessage(
+        chatId,
+"🏠 Enter Full Address with PIN Code:"
+      );
+      return res.status(200).send("Address");
     }
 
-    // ADDRESS
     if (userData.step === "address") {
-      await userRef.update({
-        tempAddress: text,
-        step: "scheme"
-      });
+      await userRef.update({ tempAddress: text, step: "mobile" });
+      await sendMessage(chatId, "📱 Enter Mobile Number:");
+      return res.status(200).send("Mobile");
+    }
 
-      await sendMessage(chatId,
+    if (userData.step === "mobile") {
+      await userRef.update({ tempMobile: text, step: "chooseScheme" });
+
+      await sendMessage(
+        chatId,
 `📦 Choose Scheme:
 
 /Monthly scheme
-/Smart scheme`);
-
-      return res.status(200).send("Ask scheme");
+/Smart scheme`
+      );
+      return res.status(200).send("Choose scheme");
     }
 
-    // SCHEME
-    if (userData.step === "scheme") {
-      await userRef.update({
-        tempScheme: text,
-        step: "payment"
-      });
+    if (userData.step === "chooseScheme") {
+      if (text !== "/Monthly scheme" && text !== "/Smart scheme") {
+        await sendMessage(chatId, "Select valid scheme.");
+        return res.status(200).send("Invalid scheme");
+      }
 
-      await sendMessage(chatId,
-`💳 Pay ₹200 Advance
+      await userRef.update({ tempScheme: text, step: "payment" });
 
-Send payment screenshot after payment.`);
-      return res.status(200).send("Ask payment");
+      await sendMessage(
+        chatId,
+`💳 Registration Advance Amount: ₹200
+
+Pay using UPI:
+
+upi://pay?pa=thamizharasanmassboy-1@okaxis&pn=Thamizh&am=200&cu=INR&tn=Register%20for%20Maha%20JS%20Mobile%20Shop
+
+Send payment screenshot after payment.`
+      );
+
+      return res.status(200).send("Payment step");
     }
 
-    // =========================
-    // PAYMENT SCREENSHOT HANDLING
-    // =========================
-    if (userData.step === "payment" && body.message.photo) {
-
-      const photo = body.message.photo.pop();
+    // ======================
+    // PAYMENT SCREENSHOT
+    // ======================
+    if (userData.step === "payment" && message.photo) {
+      const photo = message.photo.pop();
       const fileId = photo.file_id;
 
-      // Get file path
-      const fileResponse = await axios.get(
+      const fileInfo = await axios.get(
         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${fileId}`
       );
 
-      const filePath = fileResponse.data.result.file_path;
-
+      const filePath = fileInfo.data.result.file_path;
       const fileUrl = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${filePath}`;
 
-      const imageResponse = await axios.get(fileUrl, {
+      const fileData = await axios.get(fileUrl, {
         responseType: "arraybuffer",
       });
 
-      // Upload to Drive
       const bufferStream = new stream.PassThrough();
-      bufferStream.end(imageResponse.data);
+      bufferStream.end(fileData.data);
 
       const driveFile = await drive.files.create({
         requestBody: {
@@ -157,14 +206,13 @@ Send payment screenshot after payment.`);
         },
       });
 
-      const driveLink = `https://drive.google.com/file/d/${driveFile.data.id}/view`;
+      const screenshotURL = `https://drive.google.com/file/d/${driveFile.data.id}/view`;
 
-      // Get Telegram Profile Photo
+      // Get Telegram profile photo
+      let profileImage = "";
       const profilePhotos = await axios.get(
         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getUserProfilePhotos?user_id=${chatId}`
       );
-
-      let profileImage = "";
 
       if (profilePhotos.data.result.total_count > 0) {
         const profileFileId =
@@ -174,42 +222,45 @@ Send payment screenshot after payment.`);
           `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${profileFileId}`
         );
 
-        profileImage =
-          `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${profileFile.data.result.file_path}`;
+        profileImage = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${profileFile.data.result.file_path}`;
       }
 
-      // Save in customer collection
-      await db.collection("customer").add({
+      // Save Customer
+      const customerRef = await db.collection("Customer").add({
         chatId,
         username,
-        fullName: userData.tempFullName,
+        name: userData.tempName,
         address: userData.tempAddress,
+        mobile: userData.tempMobile,
         scheme: userData.tempScheme,
-        paymentScreenshot: driveLink,
         profileImage,
-        joinDate: new Date(),
-        status: "active"
+        status: "active",
+        joiningDate: new Date(),
+      });
+
+      // Save Payment
+      await db.collection("Payment").add({
+        chatId,
+        username,
+        name: userData.tempName,
+        customerId: customerRef.id,
+        screenshotURL,
+        status: "pending",
+        paymentDate: new Date(),
       });
 
       await userRef.update({
         status: "active",
         step: "",
-        tempFullName: admin.firestore.FieldValue.delete(),
-        tempAddress: admin.firestore.FieldValue.delete(),
-        tempScheme: admin.firestore.FieldValue.delete()
       });
 
-      await sendMessage(chatId,
-`🎉 Registration Successful!
-
-Payment received.
-
-Welcome to Maha JS Mobile Shop 📱✨`);
-
-      return res.status(200).send("Registration complete");
+      await sendMessage(chatId, "🎉 Registration Successful!");
+      return res.status(200).send("Registered");
     }
 
-    return res.status(200).send("Done");
+    // DEFAULT MENU
+    await sendWelcome(chatId, name);
+    return res.status(200).send("Menu");
 
   } catch (error) {
     console.error(error);
@@ -217,12 +268,27 @@ Welcome to Maha JS Mobile Shop 📱✨`);
   }
 }
 
+async function sendWelcome(chatId, name) {
+  await sendMessage(
+    chatId,
+`👋 Welcome ${name}!
+
+I am Maha JS Mobile Shop 🤖  
+Your virtual assistant.
+
+Choose:
+/New registration
+/Scheme
+/Offers`
+  );
+}
+
 async function sendMessage(chatId, text) {
   await axios.post(
     `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
     {
       chat_id: chatId,
-      text
+      text,
     }
   );
 }
