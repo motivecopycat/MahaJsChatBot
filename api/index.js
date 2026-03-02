@@ -1,13 +1,4 @@
 import axios from "axios";
-import { google } from "googleapis";
-import stream from "stream";
-
-const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
-  scopes: ["https://www.googleapis.com/auth/drive"],
-});
-
-const drive = google.drive({ version: "v3", auth });
 
 export default async function handler(req, res) {
   try {
@@ -20,81 +11,41 @@ export default async function handler(req, res) {
 
     const chatId = message.chat.id;
 
-    if (!message.photo && !message.document) {
+    // If user sends photo
+    if (message.photo) {
+      const fileId = message.photo[message.photo.length - 1].file_id;
+
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendPhoto`,
+        {
+          chat_id: chatId,
+          photo: fileId,
+          caption: "📸 You sent this image!"
+        }
+      );
+
       return res.status(200).end();
     }
 
-    let fileId = null;
-
-    // If photo
-    if (message.photo) {
-      fileId = message.photo[message.photo.length - 1].file_id;
-    }
-
-    // If image document
+    // If user sends image as document
     if (
       message.document &&
       message.document.mime_type &&
       message.document.mime_type.startsWith("image/")
     ) {
-      fileId = message.document.file_id;
-    }
+      const fileId = message.document.file_id;
 
-    if (!fileId) {
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendPhoto`,
+        {
+          chat_id: chatId,
+          photo: fileId,
+          caption: "📸 You sent this image!"
+        }
+      );
+
       return res.status(200).end();
     }
-
-    // 🔹 Get file path from Telegram
-    const fileInfo = await axios.get(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${fileId}`
-    );
-
-    const filePath = fileInfo.data.result.file_path;
-
-    const fileUrl =
-      `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${filePath}`;
-
-    // 🔹 Download image
-    const fileData = await axios.get(fileUrl, {
-      responseType: "arraybuffer",
-    });
-
-    const bufferStream = new stream.PassThrough();
-    bufferStream.end(fileData.data);
-
-    // 🔹 Upload to Google Drive
-    const driveFile = await drive.files.create({
-      requestBody: {
-        name: `telegram_${Date.now()}.jpg`,
-        parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
-      },
-      media: {
-        mimeType: "image/jpeg",
-        body: bufferStream,
-      },
-    });
-
-    const driveLink =
-      `https://drive.google.com/file/d/${driveFile.data.id}/view`;
-
-    // 🔥 SEND SAME IMAGE BACK TO USER
-    await axios.post(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendPhoto`,
-      {
-        chat_id: chatId,
-        photo: fileId,   // reuse same Telegram file
-        caption: "📸 Screenshot received & saved successfully!"
-      }
-    );
-
-    // 🔹 Optional: Send Drive link
-    await axios.post(
-      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
-      {
-        chat_id: chatId,
-        text: `🔗 Drive Link:\n${driveLink}`
-      }
-    );
 
     return res.status(200).end();
 
