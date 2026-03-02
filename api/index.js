@@ -15,27 +15,23 @@ export default async function handler(req, res) {
       return res.status(200).send("Bot running");
     }
 
-    console.log("Webhook hit");
-
     const message = req.body.message;
     if (!message) return res.status(200).end();
 
     const chatId = message.chat.id;
 
-    // Only process images
     if (!message.photo && !message.document) {
-      await sendMessage(chatId, "📸 Please send a screenshot image.");
       return res.status(200).end();
     }
 
     let fileId = null;
 
-    // If sent as photo
+    // If photo
     if (message.photo) {
       fileId = message.photo[message.photo.length - 1].file_id;
     }
 
-    // If sent as document image
+    // If image document
     if (
       message.document &&
       message.document.mime_type &&
@@ -45,13 +41,10 @@ export default async function handler(req, res) {
     }
 
     if (!fileId) {
-      await sendMessage(chatId, "⚠ Please send image file.");
       return res.status(200).end();
     }
 
-    console.log("File ID:", fileId);
-
-    // Get file path
+    // 🔹 Get file path from Telegram
     const fileInfo = await axios.get(
       `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${fileId}`
     );
@@ -61,9 +54,7 @@ export default async function handler(req, res) {
     const fileUrl =
       `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${filePath}`;
 
-    console.log("Downloading:", fileUrl);
-
-    // Download image
+    // 🔹 Download image
     const fileData = await axios.get(fileUrl, {
       responseType: "arraybuffer",
     });
@@ -71,9 +62,7 @@ export default async function handler(req, res) {
     const bufferStream = new stream.PassThrough();
     bufferStream.end(fileData.data);
 
-    console.log("Uploading to Drive...");
-
-    // Upload to Drive
+    // 🔹 Upload to Google Drive
     const driveFile = await drive.files.create({
       requestBody: {
         name: `telegram_${Date.now()}.jpg`,
@@ -88,11 +77,23 @@ export default async function handler(req, res) {
     const driveLink =
       `https://drive.google.com/file/d/${driveFile.data.id}/view`;
 
-    console.log("Uploaded:", driveLink);
+    // 🔥 SEND SAME IMAGE BACK TO USER
+    await axios.post(
+      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendPhoto`,
+      {
+        chat_id: chatId,
+        photo: fileId,   // reuse same Telegram file
+        caption: "📸 Screenshot received & saved successfully!"
+      }
+    );
 
-    await sendMessage(
-      chatId,
-      `✅ Screenshot uploaded successfully!\n\n${driveLink}`
+    // 🔹 Optional: Send Drive link
+    await axios.post(
+      `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
+      {
+        chat_id: chatId,
+        text: `🔗 Drive Link:\n${driveLink}`
+      }
     );
 
     return res.status(200).end();
@@ -101,14 +102,4 @@ export default async function handler(req, res) {
     console.error("ERROR:", error.response?.data || error.message);
     return res.status(500).end();
   }
-}
-
-async function sendMessage(chatId, text) {
-  await axios.post(
-    `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
-    {
-      chat_id: chatId,
-      text,
-    }
-  );
 }
