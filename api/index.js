@@ -15,32 +15,42 @@ export default async function handler(req, res) {
     chatId = message.chat.id;
 
     // ======================
-    // TEXT MESSAGE → ECHO
+    // TEXT → ECHO
     // ======================
     if (message.text) {
       await sendMessage(chatId, message.text);
     }
 
     // ======================
-    // IMAGE MESSAGE → RETURN DOWNLOAD LINK
+    // IMAGE → HTML DOWNLOAD LINK
     // ======================
     if (message.photo) {
 
       const fileId = message.photo[message.photo.length - 1].file_id;
 
-      // Get file path from Telegram
       const fileRes = await axios.get(
         `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${fileId}`
       );
 
       const filePath = fileRes.data.result.file_path;
 
-      const downloadLink = 
+      const downloadLink =
         `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${filePath}`;
 
-      await sendMessage(
-        chatId,
-        `📥 Image Download Link:\n${downloadLink}`
+      const htmlMessage = `
+<b>✅ Image Ready</b>
+
+📥 <a href="${downloadLink}">Click here to download your image</a>
+`;
+
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
+        {
+          chat_id: chatId,
+          text: htmlMessage,
+          parse_mode: "HTML",
+          disable_web_page_preview: true
+        }
       );
     }
 
@@ -57,9 +67,7 @@ export default async function handler(req, res) {
   }
 }
 
-// ======================
-// Send Message Function
-// ======================
+// Simple text sender
 async function sendMessage(chatId, text) {
   await axios.post(
     `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
