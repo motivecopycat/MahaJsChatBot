@@ -3,28 +3,31 @@ import { google } from "googleapis";
 import { Readable } from "stream";
 
 export default async function handler(req, res) {
+  let chatId;
+
   try {
     if (req.method !== "POST") {
       return res.status(200).send("Bot running");
     }
 
     const update = req.body;
-    if (!update?.message) return res.status(200).end();
+    if (!update?.message) {
+      return res.status(200).end();
+    }
 
     const message = update.message;
-    const chatId = message.chat.id;
+    chatId = message.chat.id;
 
-    // ======================
-    // TEXT REPLY
-    // ======================
+    // =========================
+    // TEXT ECHO
+    // =========================
     if (message.text) {
       await sendMessage(chatId, message.text);
     }
 
-    // ======================
-    // FILE DETECTION
-    // ======================
-
+    // =========================
+    // DETECT FILE
+    // =========================
     let fileId = null;
     let fileName = `file_${Date.now()}`;
 
@@ -48,12 +51,13 @@ export default async function handler(req, res) {
       fileName += ".mp3";
     }
 
-    if (!fileId) return res.status(200).end();
+    if (!fileId) {
+      return res.status(200).end();
+    }
 
-    // ======================
-    // DOWNLOAD FILE FROM TELEGRAM
-    // ======================
-
+    // =========================
+    // DOWNLOAD FROM TELEGRAM
+    // =========================
     const fileRes = await axios.get(
       `https://api.telegram.org/bot${process.env.BOT_TOKEN}/getFile?file_id=${fileId}`
     );
@@ -67,12 +71,17 @@ export default async function handler(req, res) {
     });
 
     const fileBuffer = Buffer.from(fileResponse.data);
-    const stream = Readable.from(fileBuffer); // 🔥 important fix
 
-    // ======================
+    if (!fileBuffer || fileBuffer.length === 0) {
+      await sendMessage(chatId, "❌ File download failed");
+      return res.status(200).end();
+    }
+
+    const stream = Readable.from(fileBuffer);
+
+    // =========================
     // GOOGLE DRIVE AUTH
-    // ======================
-
+    // =========================
     const auth = new google.auth.JWT(
       process.env.GOOGLE_CLIENT_EMAIL,
       null,
@@ -82,10 +91,9 @@ export default async function handler(req, res) {
 
     const drive = google.drive({ version: "v3", auth });
 
-    // ======================
+    // =========================
     // GET OR CREATE USER FOLDER
-    // ======================
-
+    // =========================
     const username =
       message.from.username ||
       message.from.first_name ||
@@ -113,18 +121,19 @@ export default async function handler(req, res) {
       userFolderId = folder.data.id;
     }
 
-    // ======================
-    // UPLOAD FILE (FIXED)
-    // ======================
-
+    // =========================
+    // UPLOAD FILE TO DRIVE
+    // =========================
     await drive.files.create({
       requestBody: {
         name: fileName,
         parents: [userFolderId]
       },
       media: {
-        body: stream // 🔥 use stream not buffer
-      }
+        mimeType: "application/octet-stream",
+        body: stream
+      },
+      fields: "id"
     });
 
     await sendMessage(chatId, "✅ File uploaded successfully!");
@@ -132,12 +141,19 @@ export default async function handler(req, res) {
     return res.status(200).end();
 
   } catch (error) {
-    console.error("FULL ERROR:", error.response?.data || error.message);
+    console.error("ERROR:", error.response?.data || error.message);
+
+    if (chatId) {
+      await sendMessage(chatId, "❌ Upload failed. Check server logs.");
+    }
+
     return res.status(200).end();
   }
 }
 
-// Helper
+// =========================
+// SEND MESSAGE FUNCTION
+// =========================
 async function sendMessage(chatId, text) {
   await axios.post(
     `https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`,
