@@ -26,75 +26,42 @@ export default async function handler(req, res) {
 
   const chatId = message.chat.id;
   const userId = message.from.id;
-  const username = message.from.username || "NoUsername";
-  const text = (message.text || "").toLowerCase();
+  const username = message.from.username || "User";
+  const text = (message.text || "").toLowerCase().trim();
   const now = new Date().toISOString();
 
-  const userRef = db.collection("telegramUser").doc(String(userId));
-  const userSnap = await userRef.get();
+  // ✅ Store or update user
+  await db.collection("telegramUser").doc(String(userId)).set({
+    unique_id: userId,
+    chat_id: chatId,
+    username: username,
+    status: "active",
+    last_message_date_time: now
+  }, { merge: true });
 
-  let currentStep = "start";
+  // 🔥 Get all telegramChat documents
+  const chatSnapshot = await db.collection("telegramChat").get();
 
-  // 🔥 If user not exists → create
-  if (!userSnap.exists) {
+  let replyMessage = "❌ Command not recognized.";
 
-    await userRef.set({
-      unique_id: userId,
-      chat_id: chatId,
-      username: username,
-      status: "active",
-      step: "start",
-      last_message_date_time: now
-    });
+  chatSnapshot.forEach(doc => {
+    const data = doc.data();
+    const keywords = data.userChat || [];
 
-    currentStep = "start";
+    if (Array.isArray(keywords)) {
+      const match = keywords.map(k => k.toLowerCase()).includes(text);
 
-  } else {
-
-    const userData = userSnap.data();
-    currentStep = userData.step || "start";
-
-    // Update last message time
-    await userRef.update({
-      last_message_date_time: now
-    });
-  }
-
-  // 🔥 Check telegramChat collection based on step
-  const chatRef = db.collection("telegramChat").doc(currentStep);
-  const chatSnap = await chatRef.get();
-
-  if (!chatSnap.exists) {
-    return res.status(200).send("Step not found");
-  }
-
-  const chatData = chatSnap.data();
-  const validInputs = chatData.userChat || [];
-
-  // Check if user message matches allowed words
-  if (validInputs.includes(text)) {
-
-    // Send bot reply from database
-    await axios.post(`${TELEGRAM_API}/sendMessage`, {
-      chat_id: chatId,
-      text: chatData.botChat
-    });
-
-    // Update user step to nextStep
-    if (chatData.nextStep) {
-      await userRef.update({
-        step: chatData.nextStep
-      });
+      if (match) {
+        replyMessage = data.botChat.replace("${username}", username);
+      }
     }
+  });
 
-  } else {
-
-    // Optional fallback
-    await axios.post(`${TELEGRAM_API}/sendMessage`, {
-      chat_id: chatId,
-      text: "❌ Invalid option. Please try again."
-    });
-  }
+  // ✅ Send reply
+  await axios.post(`${TELEGRAM_API}/sendMessage`, {
+    chat_id: chatId,
+    text: replyMessage
+  });
 
   return res.status(200).send("OK");
 }
