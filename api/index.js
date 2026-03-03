@@ -1,7 +1,6 @@
 import axios from "axios";
 import admin from "firebase-admin";
 
-// Initialize Firebase only once
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -13,7 +12,6 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
-
 const TOKEN = process.env.BOT_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
 
@@ -29,29 +27,72 @@ export default async function handler(req, res) {
   const chatId = message.chat.id;
   const userId = message.from.id;
   const username = message.from.username || "NoUsername";
-  const text = message.text || "";
+  const text = (message.text || "").toLowerCase();
   const now = new Date().toISOString();
 
-  // 🔥 Save or Update User Data in Firestore
-  await db.collection("telegramUser").doc(String(userId)).set({
-    unique_id: userId,
-    chat_id: chatId,
-    username: username,
-    status: "active",
-    step: "start",
-    last_message_date_time: now
-  }, { merge: true });
+  const userRef = db.collection("telegramUser").doc(String(userId));
+  const userSnap = await userRef.get();
 
-  // /start response
-  if (text === "/start") {
-    await axios.post(`${TELEGRAM_API}/sendMessage`, {
+  let currentStep = "start";
+
+  // 🔥 If user not exists → create
+  if (!userSnap.exists) {
+
+    await userRef.set({
+      unique_id: userId,
       chat_id: chatId,
-      text: `👋 Welcome ${username}!\n\nYour data is stored successfully 🔥`
+      username: username,
+      status: "active",
+      step: "start",
+      last_message_date_time: now
     });
+
+    currentStep = "start";
+
   } else {
+
+    const userData = userSnap.data();
+    currentStep = userData.step || "start";
+
+    // Update last message time
+    await userRef.update({
+      last_message_date_time: now
+    });
+  }
+
+  // 🔥 Check telegramChat collection based on step
+  const chatRef = db.collection("telegramChat").doc(currentStep);
+  const chatSnap = await chatRef.get();
+
+  if (!chatSnap.exists) {
+    return res.status(200).send("Step not found");
+  }
+
+  const chatData = chatSnap.data();
+  const validInputs = chatData.userChat || [];
+
+  // Check if user message matches allowed words
+  if (validInputs.includes(text)) {
+
+    // Send bot reply from database
     await axios.post(`${TELEGRAM_API}/sendMessage`, {
       chat_id: chatId,
-      text: "Message received ✅"
+      text: chatData.botChat
+    });
+
+    // Update user step to nextStep
+    if (chatData.nextStep) {
+      await userRef.update({
+        step: chatData.nextStep
+      });
+    }
+
+  } else {
+
+    // Optional fallback
+    await axios.post(`${TELEGRAM_API}/sendMessage`, {
+      chat_id: chatId,
+      text: "❌ Invalid option. Please try again."
     });
   }
 
