@@ -30,28 +30,33 @@ export default async function handler(req, res) {
 
     const chatId = message.chat.id;
     const userId = message.from.id;
-    const username =
-      message.from.username || message.from.first_name || "User";
 
+    const firstName = message.from.first_name || "";
+    const lastName = message.from.last_name || "";
+    const fullName = `${firstName} ${lastName}`.trim();
+
+    const username = message.from.username || "";
     const text = message.text || "";
+
     const now = new Date().toISOString();
 
-    // ✅ If user sends /start
-    if (text === "/start") {
+    // 🔥 When user sends /start
+    if (text === "/start" || text === "start" || text === "Start") {
 
-      // 🔥 Store user in Firestore
+      // Store user data
       await db.collection("telegramUser").doc(String(userId)).set({
         unique_id: userId,
         chat_id: chatId,
+        full_name: fullName,
         username: username,
         status: "active",
         step: "start",
         last_message_date_time: now
       }, { merge: true });
 
-      // 🔥 Welcome message
+      // Welcome message with FULL NAME
       const welcomeMessage =
-        `👋 Welcome ${username}!\n\nYour data is stored successfully 🔥`;
+        `👋 Welcome ${fullName}!\n\nYour data is stored successfully 🔥`;
 
       await axios.post(`${TELEGRAM_API}/sendMessage`, {
         chat_id: chatId,
