@@ -1,7 +1,7 @@
 import axios from "axios";
 import admin from "firebase-admin";
 
-// Firebase init
+// Firebase Init
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -31,14 +31,15 @@ export default async function handler(req, res) {
     const chatId = message.chat.id;
     const userId = message.from.id;
     const username = message.from.username || "";
-    const text = (message.text || "").toLowerCase().trim();
+    const text = (message.text || "").trim().toLowerCase();
+    const rawText = message.text || "";
     const now = new Date().toISOString();
 
     const userRef = db.collection("telegramUser").doc(String(userId));
     const userSnap = await userRef.get();
 
     // ------------------------------------------------
-    // /start command
+    // START COMMAND
     // ------------------------------------------------
     if (text === "/start") {
 
@@ -53,14 +54,14 @@ export default async function handler(req, res) {
 
       await axios.post(`${TELEGRAM_API}/sendMessage`, {
         chat_id: chatId,
-        text: "👋 Welcome!\n\nUse /new to create customer."
+        text: "👋 Welcome!\n\nUse /new to register customer."
       });
 
       return res.status(200).send("OK");
     }
 
     // ------------------------------------------------
-    // /new command
+    // NEW COMMAND
     // ------------------------------------------------
     if (text === "/new") {
 
@@ -84,7 +85,7 @@ export default async function handler(req, res) {
     }
 
     // ------------------------------------------------
-    // Receive Full Name
+    // WAITING FULL NAME
     // ------------------------------------------------
     if (userSnap.exists) {
 
@@ -92,10 +93,10 @@ export default async function handler(req, res) {
 
       if (userData.step === "waiting_fullname") {
 
-        const fullName = message.text;
+        const fullName = rawText;
 
-        // Save customer
-        await db.collection("customer").doc(String(userId)).set({
+        // Save full name
+        await db.collection("customer").doc(String(chatId)).set({
           unique_id: userId,
           chat_id: chatId,
           username: username,
@@ -104,15 +105,40 @@ export default async function handler(req, res) {
           join_date_time: now
         });
 
-        // Reset step
+        // Update step
+        await userRef.update({
+          step: "waiting_address"
+        });
+
+        await axios.post(`${TELEGRAM_API}/sendMessage`, {
+          chat_id: chatId,
+          text: "🏠 Please enter your Full Address with PIN code"
+        });
+
+        return res.status(200).send("OK");
+      }
+
+      // ------------------------------------------------
+      // WAITING ADDRESS
+      // ------------------------------------------------
+      if (userData.step === "waiting_address") {
+
+        const address = rawText;
+
+        await db.collection("customer").doc(String(chatId)).update({
+          address: address
+        });
+
         await userRef.update({
           step: "start"
         });
 
         await axios.post(`${TELEGRAM_API}/sendMessage`, {
           chat_id: chatId,
-          text: `✅ Customer created successfully\n\nName: ${fullName}`
+          text: "✅ Address saved successfully!"
         });
+
+        return res.status(200).send("OK");
       }
     }
 
