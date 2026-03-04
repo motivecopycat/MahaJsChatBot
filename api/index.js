@@ -1,7 +1,7 @@
 import axios from "axios";
 import admin from "firebase-admin";
 
-// 🔥 Initialize Firebase
+// Initialize Firebase
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -30,63 +30,39 @@ export default async function handler(req, res) {
 
     const chatId = message.chat.id;
     const userId = message.from.id;
-    const username = message.from.username || message.from.first_name || "User";
-    const text = (message.text || "").toLowerCase().trim();
+    const username =
+      message.from.username || message.from.first_name || "User";
+
+    const text = message.text || "";
     const now = new Date().toISOString();
 
-    // ✅ Store or Update user in telegramUser collection
-    await db.collection("telegramUser").doc(String(userId)).set({
-      unique_id: userId,
-      chat_id: chatId,
-      username: username,
-      status: "active",
-      last_message_date_time: now
-    }, { merge: true });
+    // ✅ If user sends /start
+    if (text === "/start") {
 
-    // 🔥 Get all commands from telegramChat
-    const chatSnapshot = await db.collection("telegramChat").get();
+      // 🔥 Store user in Firestore
+      await db.collection("telegramUser").doc(String(userId)).set({
+        unique_id: userId,
+        chat_id: chatId,
+        username: username,
+        status: "active",
+        step: "start",
+        last_message_date_time: now
+      }, { merge: true });
 
-    let replyMessage = null;
+      // 🔥 Welcome message
+      const welcomeMessage =
+        `👋 Welcome ${username}!\n\nYour data is stored successfully 🔥`;
 
-    for (const doc of chatSnapshot.docs) {
-
-      const data = doc.data();
-      const keywords = data.userChat || [];
-
-      if (Array.isArray(keywords)) {
-
-        const lowerKeywords = keywords.map(k =>
-          k.toLowerCase().trim()
-        );
-
-        if (lowerKeywords.includes(text)) {
-
-          // ✅ Replace ${username}
-          replyMessage = data.botChat.replace(
-            /\$\{username\}/g,
-            username
-          );
-
-          break; // stop after first match
-        }
-      }
+      await axios.post(`${TELEGRAM_API}/sendMessage`, {
+        chat_id: chatId,
+        text: welcomeMessage
+      });
     }
-
-    // ❌ If no match
-    if (!replyMessage) {
-      replyMessage = "❌ Invalid option. Please try again.";
-    }
-
-    // ✅ Send Telegram Reply
-    await axios.post(`${TELEGRAM_API}/sendMessage`, {
-      chat_id: chatId,
-      text: replyMessage
-    });
 
     return res.status(200).send("OK");
 
   } catch (error) {
-    console.error("Error:", error);
-    return res.status(500).send("Error occurred");
+    console.error(error);
+    return res.status(500).send("Error");
   }
 }
