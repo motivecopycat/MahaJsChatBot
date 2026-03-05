@@ -1,7 +1,7 @@
 import axios from "axios";
 import admin from "firebase-admin";
 
-// Firebase Init
+// Firebase init
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -16,6 +16,9 @@ const db = admin.firestore();
 
 const TOKEN = process.env.BOT_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
+
+// Replace with your payment link
+const PAYMENT_LINK = "https://your-payment-link.com";
 
 export default async function handler(req, res) {
 
@@ -38,9 +41,7 @@ export default async function handler(req, res) {
     const userRef = db.collection("telegramUser").doc(String(userId));
     const userSnap = await userRef.get();
 
-    // ------------------------------------------------
     // START COMMAND
-    // ------------------------------------------------
     if (text === "/start") {
 
       await userRef.set({
@@ -54,15 +55,13 @@ export default async function handler(req, res) {
 
       await axios.post(`${TELEGRAM_API}/sendMessage`, {
         chat_id: chatId,
-        text: "👋 Welcome!\n\nUse /new to register customer."
+        text: "👋 Welcome!\n\nUse /new to register."
       });
 
       return res.status(200).send("OK");
     }
 
-    // ------------------------------------------------
     // NEW COMMAND
-    // ------------------------------------------------
     if (text === "/new") {
 
       if (!userSnap.exists) return res.status(200).send("User not found");
@@ -84,18 +83,15 @@ export default async function handler(req, res) {
       return res.status(200).send("OK");
     }
 
-    // ------------------------------------------------
-    // WAITING FULL NAME
-    // ------------------------------------------------
     if (userSnap.exists) {
 
       const userData = userSnap.data();
 
+      // WAITING FULL NAME
       if (userData.step === "waiting_fullname") {
 
         const fullName = rawText;
 
-        // Save full name
         await db.collection("customer").doc(String(chatId)).set({
           unique_id: userId,
           chat_id: chatId,
@@ -105,7 +101,6 @@ export default async function handler(req, res) {
           join_date_time: now
         });
 
-        // Update step
         await userRef.update({
           step: "waiting_address"
         });
@@ -118,9 +113,7 @@ export default async function handler(req, res) {
         return res.status(200).send("OK");
       }
 
-      // ------------------------------------------------
       // WAITING ADDRESS
-      // ------------------------------------------------
       if (userData.step === "waiting_address") {
 
         const address = rawText;
@@ -130,12 +123,23 @@ export default async function handler(req, res) {
         });
 
         await userRef.update({
-          step: "start"
+          step: "payment_pending"
         });
 
+        // Send Payment Button
         await axios.post(`${TELEGRAM_API}/sendMessage`, {
           chat_id: chatId,
-          text: "✅ Address saved successfully!"
+          text: "💳 Please complete your payment:",
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: "Pay Now",
+                  url: PAYMENT_LINK
+                }
+              ]
+            ]
+          }
         });
 
         return res.status(200).send("OK");
