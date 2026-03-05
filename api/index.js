@@ -18,7 +18,7 @@ const TOKEN = process.env.BOT_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
 
 // Replace with your payment link
-const PAYMENT_LINK = "https://your-payment-link.com";
+const PAYMENT_LINK = "/pay";
 
 export default async function handler(req, res) {
 
