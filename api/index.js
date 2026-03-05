@@ -129,17 +129,8 @@ export default async function handler(req, res) {
         // Send Payment Button
         await axios.post(`${TELEGRAM_API}/sendMessage`, {
           chat_id: chatId,
-          text: "💳 Please complete your payment:",
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: "Pay Now",
-                  url: PAYMENT_LINK
-                }
-              ]
-            ]
-          }
+          text: `💳 Please complete your payment:\n\n<a href="${PAYMENT_LINK}">Click here to Pay Now</a>`,
+    parse_mode: "HTML"
         });
 
         return res.status(200).send("OK");
